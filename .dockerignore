@@ -1,0 +1,10 @@
+.git
+.github
+.cache
+.bin
+.env
+*.md
+LICENSE
+node_modules
+dist
+tmp
