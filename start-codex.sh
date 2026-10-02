@@ -3,7 +3,7 @@
 # start-codex.sh
 # 
 # 零依赖、免安装 Docker 的 Codex 容器环境启动脚本
-# 支持自动检测宿主机 Docker/Podman；若未安装，可自动就地拉取便携式免安装引擎运行。
+# 支持 root 最高权限运行、自动检测宿主机 Docker/Podman、便携式免安装运行时
 # ==============================================================================
 
 set -eo pipefail
@@ -16,6 +16,7 @@ DEFAULT_IMAGE="ghcr.io/lublue147-netizen/codex-docker:latest"
 IMAGE="${CODEX_IMAGE:-$DEFAULT_IMAGE}"
 WORKSPACE_DIR="$(pwd)"
 AUTH_DIR="${HOME}/.codex"
+RUN_USER="root"
 
 # 终端输出着色
 GREEN='\033[0;32m'
@@ -42,7 +43,7 @@ log_err() {
 
 show_help() {
     cat <<EOF
-Codex 容器环境免安装启动脚本
+Codex 容器环境免安装启动脚本 (支持 root 权限)
 
 用法:
   $(basename "$0") [选项] [-- 容器执行命令...]
@@ -50,21 +51,22 @@ Codex 容器环境免安装启动脚本
 选项:
   -w, --workspace <路径>   指定挂载到容器内的项目代码目录 (默认: 当前执行目录)
   -i, --image <镜像名>     指定 Codex 容器镜像 (默认: ${DEFAULT_IMAGE})
+  -u, --user <用户>        指定容器内运行身份 (默认: root，可选: node 等)
   -e, --env-file <文件>    指定加载的环境变量文件 (例如 .env)
   -h, --help               显示此帮助信息
 
 示例:
-  # 1. 在当前目录以交互模式启动 Codex CLI
+  # 1. 以 root 权限在当前目录启动 Codex CLI
   ./$(basename "$0")
 
-  # 2. 指定挂载其他项目目录
-  ./$(basename "$0") -w /path/to/my-project
-
-  # 3. 启动容器内置 Bash 终端进行排查或调试
+  # 2. 以 root 权限进入容器内置 Bash，可直接 apt-get update && apt-get install 安装任何工具
   ./$(basename "$0") -- bash
 
-  # 4. 执行单次 Codex 指令
-  ./$(basename "$0") -- codex --version
+  # 3. 指定挂载其他项目目录
+  ./$(basename "$0") -w /path/to/my-project
+
+  # 4. 指定非 root 用户运行 (node 用户，UID 1000，支持无密 sudo)
+  ./$(basename "$0") -u node
 
 EOF
 }
@@ -81,6 +83,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -i|--image)
             IMAGE="$2"
+            shift 2
+            ;;
+        -u|--user)
+            RUN_USER="$2"
             shift 2
             ;;
         -e|--env-file)
@@ -163,7 +169,8 @@ if ! check_engine; then
     setup_portable_runtime
 fi
 
-log_info "使用容器引擎: $RUNTIME"
+log_info "容器引擎: $RUNTIME"
+log_info "运行身份: $RUN_USER"
 log_info "Codex 镜像: $IMAGE"
 log_info "工作区挂载目录: $WORKSPACE_DIR"
 
@@ -174,8 +181,11 @@ mkdir -p "$AUTH_DIR"
 RUN_FLAGS=(
     -it
     --rm
+    --security-opt seccomp=unconfined
+    --user "$RUN_USER"
     -v "${WORKSPACE_DIR}:/workspace"
-    -v "${AUTH_DIR}:/home/codex/.codex"
+    -v "${AUTH_DIR}:/root/.codex"
+    -v "${AUTH_DIR}:/home/node/.codex"
     -w "/workspace"
 )
 
@@ -191,5 +201,5 @@ elif [[ -f "${SCRIPT_DIR}/.env" ]]; then
 fi
 
 # 5. 启动 Codex 容器环境
-log_info "正在启动 Codex 容器环境..."
+log_info "正在以 $RUN_USER 权限启动 Codex 容器环境..."
 exec $RUNTIME run "${RUN_FLAGS[@]}" "$IMAGE" "${EXTRA_ARGS[@]}"
